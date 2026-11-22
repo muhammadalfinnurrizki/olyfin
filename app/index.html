@@ -1,0 +1,64 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Olyfin</title><link rel="stylesheet" href="../style.css"><script src="../config.js?v=1795306058"></script></head><body>
+<header><img src="../logo.png" alt=""><div><h1>Olyfin</h1><div class="mut">Upload your own videos to TikTok as drafts</div></div></header>
+
+<div id="login" class="card" hidden>
+  <p>Connect your TikTok account to start.</p>
+  <button class="btn" id="loginBtn">Continue with TikTok</button>
+</div>
+
+<div id="main" hidden>
+  <div class="card user"><img id="avatar" alt=""><div><b id="name"></b><div class="mut">Connected TikTok account</div></div>
+    <button class="btn sec" id="logout" style="margin-left:auto">Log out</button></div>
+  <div class="card">
+    <b>1. Choose a video</b><p class="mut">MP4 or MOV, up to 64 MB.</p>
+    <input type="file" id="file" accept="video/mp4,video/quicktime">
+    <video id="preview" controls hidden></video>
+  </div>
+  <div class="card">
+    <b>2. Send to TikTok</b><p class="mut">The video goes to your TikTok inbox as a draft. Open the TikTok app to add a caption and post it.</p>
+    <button class="btn" id="upload" disabled>Send to TikTok</button>
+    <div id="msg"></div>
+  </div>
+</div>
+<p class="mut"><a href="../terms.html">Terms</a> · <a href="../privacy.html">Privacy</a></p>
+<script>
+const API = window.OLYFIN_API, $ = id => document.getElementById(id);
+const sid = () => { try { return localStorage.getItem("olyfin_sid") || "" } catch (e) { return "" } };
+const msg = t => $("msg").textContent = t;
+async function call(path, opts = {}) {
+  opts.headers = Object.assign({"X-Session": sid()}, opts.headers || {});
+  const r = await fetch(API + path, opts); const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || r.status), {status: r.status}); return j;
+}
+$("loginBtn").onclick = () => location.href = API + "/login";
+$("logout").onclick = async () => { try { await call("/api/logout", {method: "POST"}) } catch (e) {}
+  try { localStorage.removeItem("olyfin_sid") } catch (e) {} location.reload() };
+$("file").onchange = () => { const f = $("file").files[0]; if (!f) return;
+  $("preview").src = URL.createObjectURL(f); $("preview").hidden = false; $("upload").disabled = false; msg("") };
+$("upload").onclick = async () => {
+  const f = $("file").files[0]; if (!f) return;
+  if (f.size > 64 * 1024 * 1024) return msg("Video is larger than 64 MB.");
+  $("upload").disabled = true; msg("Uploading…");
+  try {
+    const r = await call("/api/upload", {method: "POST", body: f, headers: {"Content-Type": f.type || "video/mp4"}});
+    msg("Uploaded. Checking status…");
+    for (let i = 0; i < 20; i++) {
+      await new Promise(ok => setTimeout(ok, 3000));
+      const s = await call("/api/status", {method: "POST", body: JSON.stringify({publish_id: r.publish_id})});
+      if (s.status === "SEND_TO_USER_INBOX" || s.status === "PUBLISH_COMPLETE") {
+        msg("✅ Sent! Open TikTok and check your inbox notification to edit and post the video."); return }
+      if (s.status === "FAILED") { msg("Failed: " + (s.fail_reason || "unknown")); break }
+      msg("Processing… (" + (s.status || "waiting") + ")");
+    }
+  } catch (e) { msg("Error: " + e.message) }
+  $("upload").disabled = false;
+};
+(async () => {
+  if (!API) { $("login").hidden = false; $("loginBtn").disabled = true; return msg("Server offline") }
+  if (!sid()) { $("login").hidden = false; return }
+  try { const u = await call("/api/me"); $("name").textContent = u.display_name || "TikTok user";
+    if (u.avatar_url) $("avatar").src = u.avatar_url; $("main").hidden = false }
+  catch (e) { $("login").hidden = false }
+})();
+</script></body></html>
